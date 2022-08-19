@@ -552,3 +552,33 @@ conv_sumfct_test_featured.groupby("call_recency").count().show()
 # COMMAND ----------
 
 display(conv_sumfct_test_featured)
+
+# COMMAND ----------
+
+display(conv_sumfct_test_joined)
+
+# COMMAND ----------
+
+#session catergory data only keep cancel & move, which column could be used to join this data to coversation data
+session_category_test_col=["SID_KEY","CATEGORY_ID","INSTANCE_ID"]
+session_category_test=session_category.select(session_category_test_col).where(col("CATEGORY_ID").isin([101000264, 101001648, 109000006,109000011])).sample(0.01)
+
+# COMMAND ----------
+
+display(session_category_test)
+
+# COMMAND ----------
+
+display(conv_sumfct)
+
+# COMMAND ----------
+
+display(session_category)
+
+# COMMAND ----------
+
+display(session_booked)
+
+# COMMAND ----------
+
+

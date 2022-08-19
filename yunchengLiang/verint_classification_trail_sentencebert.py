@@ -1503,3 +1503,99 @@ display(prediction_test.selectExpr("class.metadata[0].churn"))
 # COMMAND ----------
 
 display(prediction_test)
+
+# COMMAND ----------
+
+display(prediction_test.select(save_cols).withColumn("prob_churn",col("prob_churn_string").cast("float")))
+
+# COMMAND ----------
+
+saved_train=prediction_train.select(save_cols).withColumn("prob_churn",col("prob_churn_string").cast("float"))
+saved_test=prediction_test.select(save_cols).withColumn("prob_churn",col("prob_churn_string").cast("float"))
+
+# COMMAND ----------
+
+import pyspark.ml
+import numpy as np
+from pyspark.ml.feature import OneHotEncoder, StringIndexer, VectorAssembler
+from pyspark.ml import Pipeline
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.evaluation import BinaryClassificationEvaluator 
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier
+
+# COMMAND ----------
+
+categoricalCols=['MULTI_BRAND', 'VOL_INVOL_IND', 'PLATFORM'] #RECEIVING_SKILL ,'ACTIVITY_GRADE_CODE' should be dealt with embedding technique
+indexOutputCols=[x + "_Index" for x in categoricalCols]
+oheOutputCols=[x+"_OHE" for x in categoricalCols]
+stringIndexer= StringIndexer(inputCols=categoricalCols, outputCols=indexOutputCols, handleInvalid="skip")
+oheEncoder = OneHotEncoder(dropLast=True, inputCols=indexOutputCols, outputCols=oheOutputCols)
+numericalCols=["prob_churn"]
+'''numericalCols=['Bell','Telus','Cogeco','Freedom','Virgin','TekSavvy','Shaw','Public Mobile','Chatr','Koodo','Fonus','Rogers','Fido',
+ 'Ignite SmartStream','Ignite TV','Ignite Internet','Ignite Bundles','Smart Home','Wireless Home Internet', "prob_churn"]'''
+assemblerInputs=oheOutputCols+numericalCols
+vecAssembler = VectorAssembler(inputCols=assemblerInputs, outputCol="features")
+rfClassifier=RandomForestClassifier(featuresCol="features", labelCol="label", numTrees=50)
+secondStagePipeline=Pipeline(stages=[stringIndexer, oheEncoder, vecAssembler, rfClassifier])
+
+
+'''xgb_classifier = XgboostClassifier(missing=0.0, num_workers=9, labelCol="label"
+    validationIndicatorCol='isVal', weightCol='weight',
+    early_stopping_rounds=1, eval_metric='logloss')'''
+#classifier = XgboostClassifier(num_workers=N, use_gpu=True, **{other params})    9.1ML run time
+#xgb_classifier = XgboostClassifier(max_depth=5, missing=0.0, num_workers=9, labelCol="cnt"
+#    validationIndicatorCol='isVal', weightCol='weight',
+#    early_stopping_rounds=1, eval_metric='logloss')
+'''xgb_clf_model = xgb_classifier.fit(df_train)
+xgb_clf_model.transform(df_test).show()'''
+
+
+# COMMAND ----------
+
+saved_train_label_trans=saved_train.withColumnRenamed("label","label_string")
+saved_train_label_trans=saved_train_label_trans.withColumn("label", when(saved_train_label_trans.label_string=="churn",1.0).otherwise(0.0))
+saved_test_label_trans=saved_test.withColumnRenamed("label","label_string")
+saved_test_label_trans=saved_test_label_trans.withColumn("label",when(saved_test_label_trans.label_string=="churn",1.0).otherwise(0.0))
+
+# COMMAND ----------
+
+display(saved_train_label_trans)#check to make sure features and label col are correct
+
+# COMMAND ----------
+
+secondStagePipelineModel=secondStagePipeline.fit(saved_train_label_trans)
+
+# COMMAND ----------
+
+secondStageTrainPrediction=secondStagePipelineModel.transform(saved_train_label_trans)
+secondStageTestPrediction=secondStagePipelineModel.transform(saved_test_label_trans)
+
+# COMMAND ----------
+
+display(secondStageTrainPrediction)
+
+# COMMAND ----------
+
+secondStageTrainPredictionPandas = secondStageTrainPrediction.select('label',"prediction").toPandas()
+print (classification_report(secondStageTrainPredictionPandas['prediction'], secondStageTrainPredictionPandas['label']))
+secondStageTestPredictionPandas = secondStageTestPrediction.select('label',"prediction").toPandas()
+print (classification_report(secondStageTestPredictionPandas['prediction'], secondStageTestPredictionPandas['label']))
+
+# COMMAND ----------
+
+secondStageTestPredictionPandas = secondStageTestPrediction.select('label',"prediction").toPandas()
+print (classification_report(secondStageTestPredictionPandas['prediction'], secondStageTestPredictionPandas['label']))
+
+# COMMAND ----------
+
+#feature importance ? data leakage?
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC trail three: use both CLEAN_TEXT_CUSTOMER and CLEAN_TEXT_AGENT and use doc2vec and incorporate other features, need to fillna first    
+# MAGIC do not need embedding, but need churn probability,
+
+# COMMAND ----------
+
+

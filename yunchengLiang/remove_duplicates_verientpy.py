@@ -488,3 +488,97 @@ result.createOrReplaceTempView("resultlook")
 # MAGIC select * from resultlook where speech_id in (select speech_id from resultlook group by speech_id having count(speech_id)>1)
 # MAGIC '''why same speech_id but different account_number'''
 # MAGIC '''inner join between part 2 and 3 is not valid due to dupicates in join key on both side''
+
+# COMMAND ----------
+
+conv_sumfct.count()#115,622,019 too large
+
+# COMMAND ----------
+
+for i in ["CONNECTION_ID","CTN"]:
+  print(i,' has count of ', conv_sumfct.select(i).distinct().count(),"\n")
+#71,058,603 平均每次通话1.62个interaction(transfer)
+#14,862,749 平均每个顾客4.8次通话
+
+# COMMAND ----------
+
+test_col=["SPEECH_ID_VERINT","TEXT_CUSTOMER_FULL","TEXT_ALL","CUSTOMER_ID","CTN","CONNECTION_ID","INTERACTION_ID","RECEIVING_SKILL","CATEGORY_NAMES",   "CONVERSATION_DATE"]
+conv_sumfct_test=conv_sumfct.select(test_col).sample(0.01)
+
+# COMMAND ----------
+
+conv_sumfct_test.groupby("RECEIVING_SKILL").count().show()
+
+# COMMAND ----------
+
+#加feature 一次通话中被transfer的次数
+transfer=conv_sumfct_test.groupby("CONNECTION_ID").count()
+transfer=transfer.withColumnRenamed("CONNECTION_ID","CONNECTION_ID_2")
+conv_sumfct_test_joined=conv_sumfct_test.join(transfer,conv_sumfct_test.CONNECTION_ID == transfer.CONNECTION_ID_2, 'inner')
+conv_sumfct_test_joined=conv_sumfct_test_joined.withColumnRenamed("count","transfers_per_call").drop("CONNECTION_ID_2")
+#没有CUSTOMER_ID或CTN或者TEXT_ALL的就drop掉吧 
+conv_sumfct_test_joined=conv_sumfct_test_joined.dropna(subset=["TEXT_ALL","CUSTOMER_ID","CTN"])
+
+# COMMAND ----------
+
+conv_sumfct_test_joined.show()
+
+# COMMAND ----------
+
+conv_sumfct_test_joined.columns
+
+# COMMAND ----------
+
+#加feature 按照每个用户conversation recency给rank 1，2，3...
+conv_sumfct_test_mid=conv_sumfct_test_joined.select(["CTN","CONNECTION_ID","CONVERSATION_DATE"]).dropDuplicates()#每个客户在不同日期的call,
+windowSpec = Window.partitionBy("CTN").orderBy(desc("CONVERSATION_DATE"))#给每个人的call排recency
+conv_sumfct_test_mid=conv_sumfct_test_mid.withColumn("call_recency",row_number().over(windowSpec))\
+                      .select(["CTN","CONNECTION_ID","call_recency"])
+conv_sumfct_test_mid=conv_sumfct_test_mid.withColumnRenamed("CTN","CTN2")
+conv_sumfct_test_mid=conv_sumfct_test_mid.withColumnRenamed("CONNECTION_ID","CONNECTION_ID_2")
+
+# COMMAND ----------
+
+conv_sumfct_test_mid.show()
+
+# COMMAND ----------
+
+conv_sumfct_test_featured=conv_sumfct_test_joined.join(conv_sumfct_test_mid,(conv_sumfct_test_joined.CTN==conv_sumfct_test_mid.CTN2)&(conv_sumfct_test_joined.CONNECTION_ID==conv_sumfct_test_mid.CONNECTION_ID_2), "inner").drop("CTN2").drop("CONNECTION_ID_2")
+
+# COMMAND ----------
+
+conv_sumfct_test_featured.groupby("call_recency").count().show()
+
+# COMMAND ----------
+
+display(conv_sumfct_test_featured)
+
+# COMMAND ----------
+
+display(conv_sumfct_test_joined)
+
+# COMMAND ----------
+
+#session catergory data only keep cancel & move, which column could be used to join this data to coversation data
+session_category_test_col=["SID_KEY","CATEGORY_ID","INSTANCE_ID"]
+session_category_test=session_category.select(session_category_test_col).where(col("CATEGORY_ID").isin([101000264, 101001648, 109000006,109000011])).sample(0.01)
+
+# COMMAND ----------
+
+display(session_category_test)
+
+# COMMAND ----------
+
+display(conv_sumfct)
+
+# COMMAND ----------
+
+display(session_category)
+
+# COMMAND ----------
+
+display(session_booked)
+
+# COMMAND ----------
+
+
